@@ -87,7 +87,7 @@ impl AggregateUDFImpl for ApproxMedian {
             Field::new(format_state_name(args.name, "min"), Float64, false),
             Field::new_list(
                 format_state_name(args.name, "centroids"),
-                Field::new("item", Float64, true),
+                Field::new_list_field(Float64, true),
                 false,
             ),
         ])
@@ -130,12 +130,11 @@ static DOCUMENTATION: OnceLock<Documentation> = OnceLock::new();
 
 fn get_approx_median_doc() -> &'static Documentation {
     DOCUMENTATION.get_or_init(|| {
-        Documentation::builder()
-            .with_doc_section(DOC_SECTION_APPROXIMATE)
-            .with_description(
+        Documentation::builder(
+            DOC_SECTION_APPROXIMATE,
                 "Returns the approximate median (50th percentile) of input values. It is an alias of `approx_percentile_cont(x, 0.5)`.",
-            )
-            .with_syntax_example("approx_median(expression)")
+
+            "approx_median(expression)")
             .with_sql_example(r#"```sql
 > SELECT approx_median(column_name) FROM table_name;
 +-----------------------------------+
@@ -147,6 +146,5 @@ fn get_approx_median_doc() -> &'static Documentation {
             )
             .with_standard_argument("expression", None)
             .build()
-            .unwrap()
     })
 }

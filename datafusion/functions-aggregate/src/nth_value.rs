@@ -26,7 +26,7 @@ use std::sync::{Arc, OnceLock};
 use arrow::array::{new_empty_array, ArrayRef, AsArray, StructArray};
 use arrow_schema::{DataType, Field, Fields};
 
-use datafusion_common::utils::{array_into_list_array_nullable, get_row_at_idx};
+use datafusion_common::utils::{get_row_at_idx, SingleRowListArrayBuilder};
 use datafusion_common::{exec_err, internal_err, not_impl_err, Result, ScalarValue};
 use datafusion_expr::aggregate_doc_sections::DOC_SECTION_STATISTICAL;
 use datafusion_expr::function::{AccumulatorArgs, StateFieldsArgs};
@@ -142,14 +142,14 @@ impl AggregateUDFImpl for NthValueAgg {
         let mut fields = vec![Field::new_list(
             format_state_name(self.name(), "nth_value"),
             // See COMMENTS.md to understand why nullable is set to true
-            Field::new("item", args.input_types[0].clone(), true),
+            Field::new_list_field(args.input_types[0].clone(), true),
             false,
         )];
         let orderings = args.ordering_fields.to_vec();
         if !orderings.is_empty() {
             fields.push(Field::new_list(
                 format_state_name(self.name(), "nth_value_orderings"),
-                Field::new("item", DataType::Struct(Fields::from(orderings)), true),
+                Field::new_list_field(DataType::Struct(Fields::from(orderings)), true),
                 false,
             ));
         }
@@ -173,12 +173,11 @@ static DOCUMENTATION: OnceLock<Documentation> = OnceLock::new();
 
 fn get_nth_value_doc() -> &'static Documentation {
     DOCUMENTATION.get_or_init(|| {
-        Documentation::builder()
-            .with_doc_section(DOC_SECTION_STATISTICAL)
-            .with_description(
+        Documentation::builder(
+            DOC_SECTION_STATISTICAL,
                 "Returns the nth value in a group of values.",
-            )
-            .with_syntax_example("nth_value(expression, n ORDER BY expression)")
+
+            "nth_value(expression, n ORDER BY expression)")
             .with_sql_example(r#"```sql
 > SELECT dept_id, salary, NTH_VALUE(salary, 2) OVER (PARTITION BY dept_id ORDER BY salary ASC) AS second_salary_by_dept
   FROM employee;
@@ -195,7 +194,6 @@ fn get_nth_value_doc() -> &'static Documentation {
             .with_argument("expression", "The column or expression to retrieve the nth value from.")
             .with_argument("n", "The position (nth) of the value to retrieve, based on the ordering.")
             .build()
-            .unwrap()
     })
 }
 
@@ -425,9 +423,7 @@ impl NthValueAccumulator {
         let ordering_array =
             StructArray::try_new(struct_field, column_wise_ordering_values, None)?;
 
-        Ok(ScalarValue::List(Arc::new(array_into_list_array_nullable(
-            Arc::new(ordering_array),
-        ))))
+        Ok(SingleRowListArrayBuilder::new(Arc::new(ordering_array)).build_list_scalar())
     }
 
     fn evaluate_values(&self) -> ScalarValue {

@@ -22,7 +22,7 @@ use arrow::datatypes::DataType;
 
 use arrow_schema::{Field, Fields};
 use datafusion_common::cast::as_list_array;
-use datafusion_common::utils::{array_into_list_array_nullable, get_row_at_idx};
+use datafusion_common::utils::{get_row_at_idx, SingleRowListArrayBuilder};
 use datafusion_common::{exec_err, ScalarValue};
 use datafusion_common::{internal_err, Result};
 use datafusion_expr::aggregate_doc_sections::DOC_SECTION_GENERAL;
@@ -77,8 +77,7 @@ impl AggregateUDFImpl for ArrayAgg {
     }
 
     fn return_type(&self, arg_types: &[DataType]) -> Result<DataType> {
-        Ok(DataType::List(Arc::new(Field::new(
-            "item",
+        Ok(DataType::List(Arc::new(Field::new_list_field(
             arg_types[0].clone(),
             true,
         ))))
@@ -89,7 +88,7 @@ impl AggregateUDFImpl for ArrayAgg {
             return Ok(vec![Field::new_list(
                 format_state_name(args.name, "distinct_array_agg"),
                 // See COMMENTS.md to understand why nullable is set to true
-                Field::new("item", args.input_types[0].clone(), true),
+                Field::new_list_field(args.input_types[0].clone(), true),
                 true,
             )]);
         }
@@ -97,7 +96,7 @@ impl AggregateUDFImpl for ArrayAgg {
         let mut fields = vec![Field::new_list(
             format_state_name(args.name, "array_agg"),
             // See COMMENTS.md to understand why nullable is set to true
-            Field::new("item", args.input_types[0].clone(), true),
+            Field::new_list_field(args.input_types[0].clone(), true),
             true,
         )];
 
@@ -108,7 +107,7 @@ impl AggregateUDFImpl for ArrayAgg {
         let orderings = args.ordering_fields.to_vec();
         fields.push(Field::new_list(
             format_state_name(args.name, "array_agg_orderings"),
-            Field::new("item", DataType::Struct(Fields::from(orderings)), true),
+            Field::new_list_field(DataType::Struct(Fields::from(orderings)), true),
             false,
         ));
 
@@ -154,12 +153,11 @@ static DOCUMENTATION: OnceLock<Documentation> = OnceLock::new();
 
 fn get_array_agg_doc() -> &'static Documentation {
     DOCUMENTATION.get_or_init(|| {
-        Documentation::builder()
-            .with_doc_section(DOC_SECTION_GENERAL)
-            .with_description(
+        Documentation::builder(
+            DOC_SECTION_GENERAL,
                 "Returns an array created from the expression elements. If ordering is required, elements are inserted in the specified order.",
-            )
-            .with_syntax_example("array_agg(expression [ORDER BY expression])")
+
+            "array_agg(expression [ORDER BY expression])")
             .with_sql_example(r#"```sql
 > SELECT array_agg(column_name ORDER BY other_column) FROM table_name;
 +-----------------------------------------------+
@@ -171,7 +169,6 @@ fn get_array_agg_doc() -> &'static Documentation {
             )
             .with_standard_argument("expression", None)
             .build()
-            .unwrap()
     })
 }
 
@@ -240,9 +237,8 @@ impl Accumulator for ArrayAggAccumulator {
         }
 
         let concated_array = arrow::compute::concat(&element_arrays)?;
-        let list_array = array_into_list_array_nullable(concated_array);
 
-        Ok(ScalarValue::List(Arc::new(list_array)))
+        Ok(SingleRowListArrayBuilder::new(concated_array).build_list_scalar())
     }
 
     fn size(&self) -> usize {
@@ -532,9 +528,7 @@ impl OrderSensitiveArrayAggAccumulator {
 
         let ordering_array =
             StructArray::try_new(struct_field, column_wise_ordering_values, None)?;
-        Ok(ScalarValue::List(Arc::new(array_into_list_array_nullable(
-            Arc::new(ordering_array),
-        ))))
+        Ok(SingleRowListArrayBuilder::new(Arc::new(ordering_array)).build_list_scalar())
     }
 }
 

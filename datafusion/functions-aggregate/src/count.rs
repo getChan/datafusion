@@ -135,7 +135,7 @@ impl AggregateUDFImpl for Count {
             Ok(vec![Field::new_list(
                 format_state_name(args.name, "count distinct"),
                 // See COMMENTS.md to understand why nullable is set to true
-                Field::new("item", args.input_types[0].clone(), true),
+                Field::new_list_field(args.input_types[0].clone(), true),
                 false,
             )])
         } else {
@@ -336,12 +336,11 @@ static DOCUMENTATION: OnceLock<Documentation> = OnceLock::new();
 
 fn get_count_doc() -> &'static Documentation {
     DOCUMENTATION.get_or_init(|| {
-        Documentation::builder()
-            .with_doc_section(DOC_SECTION_GENERAL)
-            .with_description(
+        Documentation::builder(
+            DOC_SECTION_GENERAL,
                 "Returns the number of non-null values in the specified column. To include null values in the total count, use `count(*)`.",
-            )
-            .with_syntax_example("count(expression)")
+
+            "count(expression)")
             .with_sql_example(r#"```sql
 > SELECT count(column_name) FROM table_name;
 +-----------------------+
@@ -359,7 +358,6 @@ fn get_count_doc() -> &'static Documentation {
 ```"#)
             .with_standard_argument("expression", None)
             .build()
-            .unwrap()
     })
 }
 
@@ -467,7 +465,8 @@ impl GroupsAccumulator for CountGroupsAccumulator {
         &mut self,
         values: &[ArrayRef],
         group_indices: &[usize],
-        opt_filter: Option<&BooleanArray>,
+        // Since aggregate filter should be applied in partial stage, in final stage there should be no filter
+        _opt_filter: Option<&BooleanArray>,
         total_num_groups: usize,
     ) -> Result<()> {
         assert_eq!(values.len(), 1, "one argument to merge_batch");
@@ -480,22 +479,11 @@ impl GroupsAccumulator for CountGroupsAccumulator {
 
         // Adds the counts with the partial counts
         self.counts.resize(total_num_groups, 0);
-        match opt_filter {
-            Some(filter) => filter
-                .iter()
-                .zip(group_indices.iter())
-                .zip(partial_counts.iter())
-                .for_each(|((filter_value, &group_index), partial_count)| {
-                    if let Some(true) = filter_value {
-                        self.counts[group_index] += partial_count;
-                    }
-                }),
-            None => group_indices.iter().zip(partial_counts.iter()).for_each(
-                |(&group_index, partial_count)| {
-                    self.counts[group_index] += partial_count;
-                },
-            ),
-        }
+        group_indices.iter().zip(partial_counts.iter()).for_each(
+            |(&group_index, partial_count)| {
+                self.counts[group_index] += partial_count;
+            },
+        );
 
         Ok(())
     }

@@ -44,6 +44,7 @@ use datafusion_common::{
 use datafusion_expr::aggregate_doc_sections::DOC_SECTION_GENERAL;
 use datafusion_functions_aggregate_common::aggregate::groups_accumulator::prim_op::PrimitiveGroupsAccumulator;
 use datafusion_physical_expr::expressions;
+use std::cmp::Ordering;
 use std::fmt::Debug;
 
 use arrow::datatypes::i256;
@@ -113,8 +114,12 @@ macro_rules! primitive_max_accumulator {
     ($DATA_TYPE:ident, $NATIVE:ident, $PRIMTYPE:ident) => {{
         Ok(Box::new(
             PrimitiveGroupsAccumulator::<$PRIMTYPE, _>::new($DATA_TYPE, |cur, new| {
-                if *cur < new {
-                    *cur = new
+                match (new).partial_cmp(cur) {
+                    Some(Ordering::Greater) | None => {
+                        // new is Greater or None
+                        *cur = new
+                    }
+                    _ => {}
                 }
             })
             // Initialize each accumulator to $NATIVE::MIN
@@ -132,8 +137,12 @@ macro_rules! primitive_min_accumulator {
     ($DATA_TYPE:ident, $NATIVE:ident, $PRIMTYPE:ident) => {{
         Ok(Box::new(
             PrimitiveGroupsAccumulator::<$PRIMTYPE, _>::new(&$DATA_TYPE, |cur, new| {
-                if *cur > new {
-                    *cur = new
+                match (new).partial_cmp(cur) {
+                    Some(Ordering::Less) | None => {
+                        // new is Less or NaN
+                        *cur = new
+                    }
+                    _ => {}
                 }
             })
             // Initialize each accumulator to $NATIVE::MAX
@@ -345,12 +354,13 @@ static DOCUMENTATION: OnceLock<Documentation> = OnceLock::new();
 
 fn get_max_doc() -> &'static Documentation {
     DOCUMENTATION.get_or_init(|| {
-        Documentation::builder()
-            .with_doc_section(DOC_SECTION_GENERAL)
-            .with_description("Returns the maximum value in the specified column.")
-            .with_syntax_example("max(expression)")
-            .with_sql_example(
-                r#"```sql
+        Documentation::builder(
+            DOC_SECTION_GENERAL,
+            "Returns the maximum value in the specified column.",
+            "max(expression)",
+        )
+        .with_sql_example(
+            r#"```sql
 > SELECT max(column_name) FROM table_name;
 +----------------------+
 | max(column_name)      |
@@ -358,10 +368,9 @@ fn get_max_doc() -> &'static Documentation {
 | 150                  |
 +----------------------+
 ```"#,
-            )
-            .with_standard_argument("expression", None)
-            .build()
-            .unwrap()
+        )
+        .with_standard_argument("expression", None)
+        .build()
     })
 }
 
@@ -1175,12 +1184,13 @@ impl AggregateUDFImpl for Min {
 
 fn get_min_doc() -> &'static Documentation {
     DOCUMENTATION.get_or_init(|| {
-        Documentation::builder()
-            .with_doc_section(DOC_SECTION_GENERAL)
-            .with_description("Returns the minimum value in the specified column.")
-            .with_syntax_example("min(expression)")
-            .with_sql_example(
-                r#"```sql
+        Documentation::builder(
+            DOC_SECTION_GENERAL,
+            "Returns the minimum value in the specified column.",
+            "min(expression)",
+        )
+        .with_sql_example(
+            r#"```sql
 > SELECT min(column_name) FROM table_name;
 +----------------------+
 | min(column_name)      |
@@ -1188,10 +1198,9 @@ fn get_min_doc() -> &'static Documentation {
 | 12                   |
 +----------------------+
 ```"#,
-            )
-            .with_standard_argument("expression", None)
-            .build()
-            .unwrap()
+        )
+        .with_standard_argument("expression", None)
+        .build()
     })
 }
 
